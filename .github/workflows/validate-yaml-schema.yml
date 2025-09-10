@@ -90,7 +90,7 @@ jobs:
           set -e
           echo "🔍 Building download matrix..."
         
-          CHANGED_FILES=$(git diff --name-only --diff-filter=A ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep 'manifests/.*\.installer\.yaml$' || true)
+          CHANGED_FILES="${{ needs.check-changes.outputs.new_files }}"
           echo "📁 Newest directory: $CHANGED_FILES"
 
           if [[ -z "$CHANGED_FILES" ]]; then

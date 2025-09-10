@@ -1,0 +1,45 @@
+# Created using wingetcreate 1.9.4.0
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+
+PackageIdentifier: Git.Git
+PackageVersion: 2.42.0
+PackageLocale: en-US
+Publisher: The Git Development Community
+PublisherUrl: https://git-scm.com/
+PublisherSupportUrl: https://git-scm.com/community
+Author: The Git Development Community
+PackageName: Git
+PackageUrl: https://git-scm.com/
+License: GPL-2.0-only
+LicenseUrl: https://github.com/git/git/blob/master/COPYING
+Copyright: Copyright (C) 2005-2023 Linus Torvalds and many others
+CopyrightUrl: https://github.com/git/git/blob/master/COPYING
+ShortDescription: Git is a free and open source distributed version control system
+Description: |-
+  Git is a free and open source distributed version control system designed to handle everything from small to very large projects with speed and efficiency.
+  Git is easy to learn and has a tiny footprint with lightning fast performance. It outclasses SCM tools like Subversion, CVS, Perforce, and ClearCase with features like cheap local branching, convenient staging areas, and multiple workflows.
+Moniker: git
+Tags:
+- cli
+- command-line
+- dvcs
+- foss
+- git
+- open-source
+- tool
+- utility
+- vcs
+- version-control
+ReleaseNotes: |-
+  • Performance improvements in object parsing
+  • Better handling of large repositories
+  • Enhanced security features
+  • Improved user experience
+ReleaseNotesUrl: https://github.com/git/git/blob/master/Documentation/RelNotes/2.42.0.txt
+Documentations:
+- DocumentLabel: Documentation
+  DocumentUrl: https://git-scm.com/doc
+- DocumentLabel: Tutorials
+  DocumentUrl: https://git-scm.com/docs/gittutorial
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
