@@ -1,0 +1,218 @@
+name: Validate WinGet Manifests (Per-File Schema)
+
+# Expose the sleep interval (in minutes) as a variable
+env:
+  SLEEP_INTERVAL_MINUTES: ${{ vars.SLEEP_INTERVAL_MINUTES }}
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "*"
+      - "manifests/**/*.yaml"
+      - "manifests/**/*.yml"
+  pull_request: 
+    types: [opened, synchronize, reopened]
+
+jobs:
+  ### 1. Validate changed manifests with Yamale
+  validate:
+    name: Validate manifests with yaml-ls-check
+    runs-on: [self-hosted, Linux, ARM64, winget]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clean up manifests (remove $schema, fix ManifestType)
+        run: |
+          echo "🔧 Cleaning up manifest YAML files..."
+
+          echo "🔹 Removing any yaml-language-server $schema lines..."
+          find manifests/ -name '*.yaml' -exec sed -i '/^# yaml-language-server: \$schema/d' {} +
+
+          echo "🔹 Replacing ManifestType: locale → defaultLocale where needed..."
+          find manifests/ -name '*.locale.*.yaml' -exec sed -i 's/^ManifestType: locale/ManifestType: defaultLocale/' {} +
+
+          echo "✅ Manifest files cleaned"
+
+      - name: Validate YAML against Winget schemas
+        uses: InoUno/yaml-ls-check@develop
+        with:
+          root: .
+
+  ### 2. Extract installer URLs into a matrix
+  extract-installers:
+    name: Extract Installers for Matrix
+    runs-on: [self-hosted, Linux, ARM64, winget]
+    needs: validate
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install yq & jq
+        run: |
+          curl -L https://github.com/mikefarah/yq/releases/download/v4.35.2/yq_linux_arm64 -o yq
+          chmod +x yq && sudo mv yq /usr/local/bin/yq
+          sudo dnf install -y jq
+
+      - name: Build download matrix
+        id: set-matrix
+        run: |
+          set -e
+          echo "🔍 Building download matrix..."
+          git fetch origin master
+
+          NEWEST_DIR=$(find manifests/ -type d -path 'manifests/*/*/*/*' -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+          echo "📁 Newest directory: $NEWEST_DIR"
+
+          FILES=$(find "$NEWEST_DIR" -name '*.installer.yaml' || true)
+
+          if [[ -z "$FILES" ]]; then
+            echo 'matrix={"installer":[]}' >> "$GITHUB_OUTPUT"
+            echo "⚠️ No changed installer manifests detected."
+            exit 0
+          fi
+
+          INSTALLERS=()
+          for file in $FILES; do
+            PACKAGE_ID=$(yq '.PackageIdentifier' "$file")
+            PACKAGE_VERSION=$(yq '.PackageVersion' "$file")
+            COUNT=$(yq '.Installers | length' "$file")
+
+          for i in $(seq 0 $((COUNT - 1))); do
+            ARCH=$(yq ".Installers[$i].Architecture" "$file")
+            URL=$(yq ".Installers[$i].InstallerUrl" "$file")
+            HASH=$(yq ".Installers[$i].InstallerSha256" "$file")
+
+            if [[ -n "$URL" && -n "$HASH" ]]; then
+              INSTALLERS+=("$(jq -nc \
+                --arg id "$PACKAGE_ID" \
+                --arg version "$PACKAGE_VERSION" \
+                --arg arch "$ARCH" \
+                --arg url "$URL" \
+                --arg hash "$HASH" \
+                '{id: $id, version: $version, arch: $arch, url: $url, hash: $hash}')")
+            fi
+          done
+          done
+
+          JSON_ARRAY=$(printf "%s\n" "${INSTALLERS[@]}" | jq -s '[.[]] | unique_by(.id, .version, .arch)')
+          MATRIX_JSON=$(jq -c <<< "{\"installer\":$JSON_ARRAY}")
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "✅ Installer matrix built:"
+          echo "$MATRIX_JSON"
+
+  ### 3. Download,Upload & verify each installer
+  process-installers:
+    name: Handle Installers (${{ matrix.installer.id }} ${{ matrix.installer.arch }})
+    runs-on: [self-hosted, Linux, ARM64, winget]
+    needs: extract-installers
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.extract-installers.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clean temp_download
+        run: rm -rf temp_download && mkdir temp_download
+
+      - name: Download installer
+        run: |
+          set -e
+          ID="${{ matrix.installer.id }}"
+          VER="${{ matrix.installer.version }}"
+          ARCH="${{ matrix.installer.arch }}"
+          URL="${{ matrix.installer.url }}"
+          HASH_EXPECTED="${{ matrix.installer.hash }}"
+
+          mkdir -p "temp_download/$ID/$VER/$ARCH"
+          FILEPATH="temp_download/$ID/$VER/$ARCH/$(basename "$URL")"
+
+          curl -L "$URL" -o "$FILEPATH"
+          HASH_ACTUAL=$(sha256sum "$FILEPATH" | awk '{print toupper($1)}')
+
+          if [[ "$HASH_ACTUAL" != "$HASH_EXPECTED" ]]; then
+            echo "❌ Hash mismatch: $FILEPATH"
+            exit 1
+          fi
+          echo "✅ Downloaded and verified: $FILEPATH"
+
+      # - name: Upload installer via FTP
+      #   run: |
+      #     set -e
+      #     ID="${{ matrix.installer.id }}"
+      #     VER="${{ matrix.installer.version }}"
+      #     ARCH="${{ matrix.installer.arch }}"
+      #     FILE_NAME=$(basename "${{ matrix.installer.url }}")
+      #     FILEPATH="temp_download/$ID/$VER/$ARCH/$FILE_NAME"
+      #     REMOTE_DIR="New Software/$ID/$VER/$ARCH"
+      #     echo "📤 Uploading $FILE_NAME to FTP at $TARGET_DIR"
+
+      #     lftp -u "${{ secrets.FTP_USER }}","${{ secrets.FTP_PASS }}" ftp://${{ secrets.FTP_HOST }} <<EOF
+      #     set ftp:passive-mode on
+      #     set ssl:verify-certificate no
+      #     mkdir -p "$REMOTE_DIR"
+      #     cd "$REMOTE_DIR"
+      #     put "$FILEPATH"
+      #     bye
+      #     EOF
+
+      #     echo "✅ Upload complete for: $FILE_NAME"
+
+      # - name: Poll scan result
+      #   run: |
+      #     set -e
+      #     FILE_NAME=$(basename "${{ matrix.installer.url }}")
+      #     PACKAGE_DIR="${{ matrix.installer.id }}/${{ matrix.installer.version }}/${{ matrix.installer.arch }}"
+      #     MAX_ATTEMPTS=18
+      #     INTERVAL_MINUTES=${{ vars.SLEEP_INTERVAL_MINUTES }}
+
+      #     echo "🕒 Initial wait for ${INTERVAL_MINUTES} minutes before first check..."
+      #     sleep $((INTERVAL_MINUTES * 60))
+
+      #     for attempt in $(seq 1 $MAX_ATTEMPTS); do
+      #       echo "🔁 Poll Attempt #$attempt: Checking FTP for $PACKAGE_DIR/$FILE_NAME"
+      #       OUTPUT=$(mktemp)
+      #       lftp > "$OUTPUT" 2>&1 <<EOF
+      #       open -u ${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }} ftp://${{ secrets.FTP_HOST }}
+      #       set ftp:passive-mode on
+      #       set ssl:verify-certificate no
+      #       cls -1 "Scanned software failed/${PACKAGE_DIR}" || echo "⚠️ Failed to list failed dir"
+      #       cls -1 "Scanned software passed/${PACKAGE_DIR}" || echo "⚠️ Failed to list passed dir"
+      #       bye
+      #     EOF
+
+      #       if grep "$FILE_NAME" "$OUTPUT" | grep "Scanned software failed"; then
+      #         echo "❌ Found $FILE_NAME in failed folder"
+      #         lftp <<EOF
+      #         open -u ${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }} ftp://${{ secrets.FTP_HOST }}
+      #         set ftp:passive-mode on
+      #         set ssl:verify-certificate no
+      #         rm -r "Scanned software failed/${PACKAGE_DIR}"
+      #     EOF
+      #         exit 1
+      #       fi
+
+      #       if grep "$FILE_NAME" "$OUTPUT" | grep "Scanned software passed"; then
+      #         echo "✅ File passed scan: $FILE_NAME"
+      #         lftp <<EOF
+      #         open -u ${{ secrets.FTP_USER }},${{ secrets.FTP_PASS }} ftp://${{ secrets.FTP_HOST }}
+      #         set ftp:passive-mode on
+      #         set ssl:verify-certificate no
+      #         rm -r "Scanned software passed/${PACKAGE_DIR}"
+      #     EOF
+      #         exit 0
+      #       fi
+
+      #       echo "🕒 Not yet scanned. Sleeping ${INTERVAL_MINUTES} minutes..."
+      #       sleep $((INTERVAL_MINUTES * 60))
+      #     done
+
+      #     echo "❌ Timeout: Scan result not found after $((MAX_ATTEMPTS * INTERVAL_MINUTES)) minutes"
+      #     exit 1
