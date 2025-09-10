@@ -51,7 +51,7 @@ jobs:
 
       - name: Install yq & jq
         run: |
-          curl -L https://github.com/mikefarah/yq/releases/download/v4.35.2/yq_linux_arm64 -o yq
+          curl -L https://github.com/mikefarah/yq/releases/download/v4.35.2/yq_linux_amd64 -o yq
           chmod +x yq && sudo mv yq /usr/local/bin/yq
           sudo apt-get update
           sudo apt-get install -y jq
@@ -61,8 +61,7 @@ jobs:
         run: |
           set -e
           echo "🔍 Building download matrix..."
-          git fetch origin master
-
+          
           NEWEST_DIR=$(find manifests/ -type d -path 'manifests/*/*/*/*' -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
           echo "📁 Newest directory: $NEWEST_DIR"
 
