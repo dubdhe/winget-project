@@ -1,0 +1,11 @@
+{
+  "yaml.schemas": {
+    "./schemas/installer.schema.json": "manifests/**/*.installer.yaml",
+    "./schemas/defaultLocale.schema.json": "manifests/**/*.locale*.yaml",
+    "./schemas/version.schema.json": [
+      "manifests/**/*.yaml",
+      "!manifests/**/*.locale*.yaml",
+      "!manifests/**/*.installer.yaml"
+    ]
+  }
+}
