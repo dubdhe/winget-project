@@ -9,11 +9,40 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  ### 1. Validate changed manifests with Yamale
+  ### 1. Check for new installer files (runs first)
+  check-changes:
+    name: Check for newly added files
+    runs-on: ubuntu-latest
+    outputs:
+      has_new_files: ${{ steps.check.outputs.has_new_files }}
+      new_files: ${{ steps.check.outputs.new_files }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for newly added installer files
+        id: check
+        run: |
+          NEW_FILES=$(git diff --name-only --diff-filter=A ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep 'manifests/.*\.installer\.yaml$' || true)
+          
+          if [[ -z "$NEW_FILES" ]]; then
+            echo "has_new_files=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ No new installer files detected - skipping pipeline"
+          else
+            echo "has_new_files=true" >> "$GITHUB_OUTPUT"
+            echo "new_files<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$NEW_FILES" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            echo "✅ Found new installer files: $NEW_FILES"
+          fi
+
+  ### 2. Validate changed manifests with Yamale
   validate:
     name: Validate manifests with yaml-ls-check
     runs-on: ubuntu-latest
-
+    needs: check-changes
+    if: needs.check-changes.outputs.has_new_files == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,15 +64,15 @@ jobs:
         with:
           root: .
 
-  ### 2. Extract installer URLs into a matrix
+  ### 3. Extract installer URLs into a matrix
   extract-installers:
     name: Extract Installers for Matrix
     #runs-on: [self-hosted, Linux, ARM64, winget]
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [check-changes, validate]
+    if: needs.check-changes.outputs.has_new_files == 'true'
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -60,20 +89,18 @@ jobs:
         run: |
           set -e
           echo "🔍 Building download matrix..."
-          
-          NEWEST_DIR=$(find manifests/ -type d -path 'manifests/*/*/*/*' -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
-          echo "📁 Newest directory: $NEWEST_DIR"
+        
+          CHANGED_FILES=$(git diff --name-only --diff-filter=A ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep 'manifests/.*\.installer\.yaml$' || true)
+          echo "📁 Newest directory: $CHANGED_FILES"
 
-          FILES=$(find "$NEWEST_DIR" -name '*.installer.yaml' || true)
-
-          if [[ -z "$FILES" ]]; then
+          if [[ -z "$CHANGED_FILES" ]]; then
             echo 'matrix={"installer":[]}' >> "$GITHUB_OUTPUT"
             echo "⚠️ No changed installer manifests detected."
             exit 0
           fi
 
           INSTALLERS=()
-          for file in $FILES; do
+          for file in $CHANGED_FILES; do
             PACKAGE_ID=$(yq '.PackageIdentifier' "$file")
             PACKAGE_VERSION=$(yq '.PackageVersion' "$file")
             COUNT=$(yq '.Installers | length' "$file")
@@ -101,12 +128,13 @@ jobs:
           echo "✅ Installer matrix built:"
           echo "$MATRIX_JSON"
 
-  ### 3. Download,Upload & verify each installer
+  ### 4. Download,Upload & verify each installer
   process-installers:
     name: Handle Installers (${{ matrix.installer.id }} ${{ matrix.installer.arch }})
     #runs-on: [self-hosted, Linux, ARM64, winget]
     runs-on: ubuntu-latest
-    needs: extract-installers
+    needs: [check-changes, extract-installers]
+    if: needs.check-changes.outputs.has_new_files == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.extract-installers.outputs.matrix) }}
