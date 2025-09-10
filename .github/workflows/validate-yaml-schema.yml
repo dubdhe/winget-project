@@ -130,7 +130,6 @@ jobs:
             echo "$MATRIX_JSON"
           fi
           
-
   ### 4. Download,Upload & verify each installer
   process-installers:
     name: Handle Installers (${{ matrix.installer.id }} ${{ matrix.installer.arch }})
@@ -190,7 +189,6 @@ jobs:
       #     EOF
 
       #     echo "✅ Upload complete for: $FILE_NAME"
-
       # - name: Poll scan result
       #   run: |
       #     set -e
