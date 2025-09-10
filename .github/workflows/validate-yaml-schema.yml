@@ -27,8 +27,8 @@ jobs:
           NEW_FILES=$(git diff --name-only --diff-filter=A ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} | grep 'manifests/.*\.installer\.yaml$' || true)
           
           if [[ -z "$NEW_FILES" ]]; then
+            echo "has_new_files=false" >> "$GITHUB_OUTPUT"
             echo "⚠️ No new installer files detected - skipping pipeline"
-            exit 1;
           else
             echo "has_new_files=true" >> "$GITHUB_OUTPUT"
             echo "new_files<<EOF" >> "$GITHUB_OUTPUT"
@@ -42,7 +42,7 @@ jobs:
     name: Validate manifests with yaml-ls-check
     runs-on: ubuntu-latest
     needs: check-changes
-    
+    if: needs.check-changes.outputs.has_new_files == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -70,7 +70,7 @@ jobs:
     #runs-on: [self-hosted, Linux, ARM64, winget]
     runs-on: ubuntu-latest
     needs: [check-changes, validate]
-    
+    if: needs.check-changes.outputs.has_new_files == 'true'
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_installers: ${{ steps.set-matrix.outputs.has_installers }}
