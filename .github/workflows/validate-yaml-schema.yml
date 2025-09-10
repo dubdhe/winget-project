@@ -12,7 +12,6 @@ jobs:
   ### 1. Validate changed manifests with Yamale
   validate:
     name: Validate manifests with yaml-ls-check
-    #runs-on: [self-hosted, Linux, ARM64, winget]
     runs-on: ubuntu-latest
 
     steps:
