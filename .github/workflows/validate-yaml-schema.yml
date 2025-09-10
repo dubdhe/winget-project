@@ -5,13 +5,6 @@ env:
   SLEEP_INTERVAL_MINUTES: ${{ vars.SLEEP_INTERVAL_MINUTES }}
 
 on:
-  push:
-    branches:
-      - "**"
-    paths:
-      - "*"
-      - "manifests/**/*.yaml"
-      - "manifests/**/*.yml"
   pull_request: 
     types: [opened, synchronize, reopened]
 
@@ -60,7 +53,8 @@ jobs:
         run: |
           curl -L https://github.com/mikefarah/yq/releases/download/v4.35.2/yq_linux_arm64 -o yq
           chmod +x yq && sudo mv yq /usr/local/bin/yq
-          sudo dnf install -y jq
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       - name: Build download matrix
         id: set-matrix
