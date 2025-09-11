@@ -7,6 +7,18 @@ env:
 on:
   pull_request: 
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Force run even if no new files'
+        required: false
+        default: false
+        type: boolean
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'main'
+        type: string
 
 jobs:
   ### 1. Check for new installer files (runs first)
