@@ -51,7 +51,7 @@ jobs:
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           else
-            BASE_SHA=$(git rev-parse HEAD~1)
+            BASE_SHA=$(git merge-base HEAD origin/main)
             HEAD_SHA=$(git rev-parse HEAD)
           fi
           
