@@ -55,6 +55,8 @@ jobs:
             HEAD_SHA=$(git rev-parse HEAD)
           fi
           
+          echo "$BASE_SHA"
+          echo "$HEAD_SHA"
           NEW_FILES=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" | grep 'manifests/.*\.installer\.yaml$' || true)
           
           if [[ -z "$NEW_FILES" ]]; then
